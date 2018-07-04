@@ -1,0 +1,14 @@
+export home=`eval echo ~$USER`
+export model_git_path="$home/community/models/research/slim"
+export tf_git_path="$home/community/tensorflow"
+
+export ckt_path=/tmp/checkpoints
+export exported_inf_path=/tmp/exported
+export frozen_inf_path=/tmp/frozen
+export rename_script_path="$home/community/learning/onnx/update_name_with_index.py "
+
+mkdir $ckt_path
+mkdir $exported_inf_path
+mkdir $frozen_inf_path
+
+export model_postfix="_inf_graph.pb"
