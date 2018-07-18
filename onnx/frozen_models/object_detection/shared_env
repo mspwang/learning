@@ -1,4 +1,5 @@
 export home=`eval echo ~$USER`
+export model_git_path="$home/community/models/research/object_detection"
 export tf_git_path="$home/community/tensorflow"
 
 export ckt_path=/tmp/checkpoints

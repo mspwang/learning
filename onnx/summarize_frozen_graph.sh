@@ -10,9 +10,13 @@ ls /tmp/frozen/ > /tmp/temp_frozen.txt
 bazel build tensorflow/tools/graph_transforms:summarize_graph
 
 while IFS='' read -r line || [[ -n "$line" ]]; do
-  if [ ! -z $pb_file -a $pb_file != $line ]; then
+  if [ ! -z $pb_file ] && [ $pb_file != $line ]; then
     continue
   fi
+  echo
+  echo 
+  echo 
+  echo
   echo -------------------- start handling $line ----------------------------
   echo change working directory to $tf_git_path
   cd $tf_git_path
@@ -33,7 +37,8 @@ while IFS='' read -r line || [[ -n "$line" ]]; do
   echo ------ start convertion, tensorflow usage require caller program must not in tensorflow root folder, so switch to current user directory with cd
   cd 
   python3 -m tf2onnx.convert --input "/tmp/frozen/$line" --inputs $update_input_name --outputs $update_output_name --output $line.onnx --verbose
-  echo python3 -m tf2onnx.convert --input "/tmp/frozen/$line" --inputs $update_input_name --outputs $update_output_name --output $line.onnx --verbose
+  echo python3 -m tf2onnx.convert --input "/tmp/frozen/$line" --inputs $update_input_name --outputs $update_output_name --output $line.onnx --verbose --continue_on_error
+  echo "generated onnx is located"`pwd`"/$line.onnx"
 done < /tmp/temp_frozen.txt
 
 echo ------ switch back to original directory: $cur_path
