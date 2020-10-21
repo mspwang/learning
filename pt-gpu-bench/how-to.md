@@ -1,3 +1,6 @@
+pip install -r requirement.txt
+
+
 ## Run on Single Node
 
 
