@@ -1,3 +1,5 @@
+## Env
+
 pip install -r requirement.txt
 
 
@@ -5,6 +7,8 @@ pip install -r requirement.txt
 
 
 	python -m torch.distributed.launch --nproc_per_node=8 --nnodes=1 --node_rank=0 --master_addr=$MASTER_IP --master_port=29500 benchmark_models.py -n 50 -b 4
+	
+Change the batch size with -b option. 
 
 
 ## Run on Multi Nodes
