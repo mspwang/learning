@@ -7,7 +7,7 @@ import time,os
 import pandas as pd
 import argparse
 from torch.utils.data import Dataset, DataLoader
-
+import torch.distributed as dist
 torch.backends.cudnn.benchmark = True
 
 
@@ -18,13 +18,13 @@ MODEL_LIST = {
     models.resnet: models.resnet.__all__[1:],
     #models.densenet: models.densenet.__all__[1:],
     #models.squeezenet: models.squeezenet.__all__[1:],
-    #models.vgg: models.vgg.__all__[1:],
+    models.vgg: models.vgg.__all__[1:],
     #models.mobilenet:models.mobilenet.__all__[1:],
     #models.shufflenetv2:models.shufflenetv2.__all__[1:]
 }
 
 #precisions=["float","half",'double']
-precisions=["half"]
+precisions=["float"]
 device_name=str(torch.cuda.get_device_name(0))
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch Benchmarking')
@@ -32,12 +32,11 @@ parser.add_argument('--WARM_UP','-w', type=int,default=5, required=False, help="
 parser.add_argument('--NUM_TEST','-n', type=int,default=50,required=False, help="Num of Test")
 parser.add_argument('--BATCH_SIZE','-b', type=int, default=128, required=False, help='Num of batch size')
 parser.add_argument('--NUM_CLASSES','-c', type=int, default=1000, required=False, help='Num of class')
-parser.add_argument('--NUM_GPU','-g', type=int, default=1, required=False, help='Num of gpus')
+parser.add_argument('--local_rank', type=int, default=1000, required=False, help='Local rank of this process')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float, metavar='LR', help='initial learning rate', dest='lr')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M', help='momentum')
 parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float, metavar='W', help='weight decay (default: 1e-4)', dest='weight_decay')
 args = parser.parse_args()
-args.BATCH_SIZE*=args.NUM_GPU
 class RandomDataset(Dataset):
 
     def __init__(self,  length):
@@ -54,20 +53,28 @@ rand_loader = DataLoader(dataset=RandomDataset( args.BATCH_SIZE*(args.WARM_UP + 
                          batch_size=args.BATCH_SIZE, shuffle=False,num_workers=8)
 def train(type='single'):
     """use fake image for training speed test"""
-    target = torch.LongTensor(args.BATCH_SIZE).random_(args.NUM_CLASSES).cuda()
-    criterion = nn.CrossEntropyLoss()
+    os.environ["NCCL_TREE_THRESHOLD"] = "0"
+    gpu_id = args.local_rank
+    torch.cuda.set_device(gpu_id)
+    target = torch.LongTensor(args.BATCH_SIZE).random_(args.NUM_CLASSES).cuda(gpu_id)
+    criterion = nn.CrossEntropyLoss().cuda(gpu_id)
     benchmark = {}
     print(MODEL_LIST.keys())
+     
+    dist.init_process_group(
+    	backend='nccl',
+   	init_method='env://',
+    )
     for model_type in MODEL_LIST.keys():
         for model_name in MODEL_LIST[model_type]:
-            if model_name != "resnet152":
-                print("Not expected resnet152 model, skil, current model_name is " + model_name)
+            #if model_name != "resnet152":
+            if model_name != "vgg19":
+                print("Not expected vgg19 model, skil, current model_name is " + model_name)
                 continue
             model = getattr(model_type, model_name)(pretrained=False)
-            if args.NUM_GPU > 1:
-                model = nn.DataParallel(model,device_ids=range(args.NUM_GPU))
+            model.cuda(gpu_id)
+            model = nn.parallel.DistributedDataParallel(model,device_ids=[gpu_id])
             model=getattr(model,type)()
-            model=model.to('cuda')
             optimizer = torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
             durations = []
             print('Benchmarking Training {} precision type {} '.format(type,model_name))
@@ -78,7 +85,7 @@ def train(type='single'):
                     #torch.cuda.synchronize()
                     #start = time.time()
                     #model.zero_grad()
-                    prediction = model(img.to('cuda'))
+                    prediction = model(img.cuda(gpu_id))
                     loss = criterion(prediction, target)
                     optimizer.zero_grad()
                     loss.backward()
@@ -94,40 +101,11 @@ def train(type='single'):
             benchmark[model_name] = durations
     return benchmark
 
-def inference(type='float'):
-    benchmark = {}
-    with torch.no_grad():
-        for model_type in MODEL_LIST.keys():
-            for model_name in MODEL_LIST[model_type]:
-                model = getattr(model_type, model_name)(pretrained=False)
-                if args.NUM_GPU > 1:
-                    model = nn.DataParallel(model,device_ids=range(args.NUM_GPU))
-                model=getattr(model,type)()
-                model=model.to('cuda')
-                model.eval()
-                durations = []
-                print('Benchmarking Inference {} precision type {} '.format(type,model_name))
-                for step,img in enumerate(rand_loader):
-                    img=getattr(img,type)()
-                    torch.cuda.synchronize()
-                    start = time.time()
-                    model(img.to('cuda'))
-                    torch.cuda.synchronize()
-                    end = time.time()
-                    if step >= args.WARM_UP:
-                        durations.append((end - start)*1000)
-                print(model_name,' model average inference time : ',sum(durations)/len(durations),'ms')
-                del model
-                benchmark[model_name] = durations
-    return benchmark
-
-
-
 
 if __name__ == '__main__':
     folder_name='new_results'
     path=''
-    device_name="".join((device_name, '_',str(args.NUM_GPU),'_gpus_'))
+    device_name="".join((device_name, '_'))
     system_configs=str(platform.uname())
     system_configs='\n'.join((system_configs,str(psutil.cpu_freq()),'cpu_count: '+str(psutil.cpu_count()),'memory_available: '+str(psutil.virtual_memory().available)))
     gpu_configs=[torch.cuda.device_count(),torch.version.cuda,torch.backends.cudnn.version(),torch.cuda.get_device_name(0)]
