@@ -54,6 +54,10 @@ rand_loader = DataLoader(dataset=RandomDataset( args.BATCH_SIZE*(args.WARM_UP + 
 def train(type='single'):
     """use fake image for training speed test"""
     os.environ["NCCL_TREE_THRESHOLD"] = "0"
+    print('IB Enabled')
+    os.environ['NCCL_SOCKET_IFNAME'] = 'eth0'
+    os.environ['NCCL_IB_DISABLE'] = '0'
+    os.environ['NCCL_DEBUG']='INFO'
     gpu_id = args.local_rank
     torch.cuda.set_device(gpu_id)
     target = torch.LongTensor(args.BATCH_SIZE).random_(args.NUM_CLASSES).cuda(gpu_id)
